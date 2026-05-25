@@ -279,9 +279,10 @@ def _clean_content(soup):
         joined = " ".join(tag.get("class", [])) + " " + (tag.get("id") or "")
         low = joined.lower()
         text_len = len(tag.get_text(" ", strip=True))
+        role = (tag.get("role") or "").lower()
 
-        # keyword hit + short content => likely popup/widget noise
-        if any(k in low for k in noisy_keywords) and text_len < 800:
+        # keyword hit => likely popup/widget noise
+        if any(k in low for k in noisy_keywords) or role in {"dialog", "alertdialog"}:
             to_remove.append(tag)
 
     for tag in to_remove:
@@ -331,7 +332,8 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
         # check keyword in url
 
         if text:
-            if link_name == "home":
+            if link_name == "home" and text not in seen_by_key["about"]:
+                seen_by_key["about"].add(text)
                 classified_results["about"].append(text)
             for key in key_words:
                 if (key in current or key in link_name.lower()) and text not in seen_by_key[key]:
