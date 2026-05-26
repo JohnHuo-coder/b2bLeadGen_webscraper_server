@@ -28,8 +28,20 @@ class QueryBody(BaseModel):
 
 @app.post("/api/scrape")
 def run_query(body: QueryBody):
-    result = scrape_hotel_website_summary(body.webUrl, body.maxPage)
-    return result
+    try:
+        result = scrape_hotel_website_summary(body.webUrl, body.maxPage)
+        return result
+    except Exception as e:
+        return {
+            "website_url": body.webUrl,
+            "status": "failed",
+            "error": f"Internal Server Error: {e}",
+            "about": "",
+            "events_meetings": "",
+            "promotion_news": "",
+            "facility_amenity": "",
+            "dining": ""
+        }
 
 @app.get("/health")
 def health() -> dict[str, str]:
