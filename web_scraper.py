@@ -390,12 +390,6 @@ def scrape_hotel_website_summary(
         for key in ["facility", "facilities", "amenities", "amenity", "dining"]
         if classified_results.get(key)
     ]
-    
-    events_meetings = "\n\n".join(events_meetings)
-    promotion_news = "\n\n".join(promotion_news)
-    facility_amenity = "\n\n".join(facility_amenity)
-    
-    about = "\n".join(classified_results.get("about", []))
 
     events_meetings = _truncate_chars("\n\n".join(events_meetings), 3200)
     promotion_news = _truncate_chars("\n\n".join(promotion_news), 1800)
