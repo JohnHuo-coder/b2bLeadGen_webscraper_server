@@ -353,7 +353,11 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
     return pages, classified_results
 
 
-
+def _truncate_chars(text: str, max_chars: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "\n...[TRUNCATED]"
 
 def scrape_hotel_website_summary(
     website_url: str,
@@ -371,15 +375,32 @@ def scrape_hotel_website_summary(
         website_url = f"https://{website_url}"
 
     pages, classified_results = collect_site_content(website_url, max_pages=max_pages)
-    events_meetings = [key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n" for key in ["event", "meeting", "conference", "venue"]]
-    promotion_news = [key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n" for key in ["promotion", "news"]]
-    facility_amenity = [key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n" for key in ["facility", "facilities", "amenities", "amenity", "dining"]]
+    events_meetings = [
+        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
+        for key in ["event", "meeting", "conference", "venue"]
+        if classified_results.get(key)
+    ]
+    promotion_news = [
+        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
+        for key in ["promotion", "news"]
+        if classified_results.get(key)
+    ]
+    facility_amenity = [
+        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
+        for key in ["facility", "facilities", "amenities", "amenity", "dining"]
+        if classified_results.get(key)
+    ]
     
     events_meetings = "\n\n".join(events_meetings)
     promotion_news = "\n\n".join(promotion_news)
     facility_amenity = "\n\n".join(facility_amenity)
     
     about = "\n".join(classified_results.get("about", []))
+
+    events_meetings = _truncate_chars("\n\n".join(events_meetings), 3200)
+    promotion_news = _truncate_chars("\n\n".join(promotion_news), 1800)
+    facility_amenity = _truncate_chars("\n\n".join(facility_amenity), 3200)
+    about = _truncate_chars("\n".join(classified_results.get("about", [])), 2000)
 
     if not pages:
         return {
@@ -393,11 +414,7 @@ def scrape_hotel_website_summary(
             "dining": ""
         }
 
-    dedup_contents = list(set(pages.values()))
-    combined_text = "\n\n".join(dedup_contents)
-
     return {
-        "full_content": combined_text,
         "website_url": website_url,
         "status": "ok",
         "pages_scanned": len(pages),
