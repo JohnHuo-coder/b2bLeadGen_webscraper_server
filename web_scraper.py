@@ -14,23 +14,24 @@ USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-MAX_PAGES = 30
+MAX_PAGES = 20
 REQUEST_TIMEOUT = 15
 
-EVENT_KEYWORDS = (
-    "event",
-    "events",
-    "wedding",
-    "meeting",
-    "conference",
-    "banquet",
-    "celebration",
-    "festive",
-    "offer",
-    "promotion",
-    "news",
-    "special",
-    "happening",
+ABOUT_KEYWORDS = (
+    "about", 
+    "overview", 
+    "story", 
+    "experience"
+)
+
+ROOM_KEYWORDS = (
+    "accommodation", 
+    "room", 
+    "stay", 
+    "suite", 
+    "guestroom", 
+    "offer", 
+    "package"
 )
 
 AMENITY_KEYWORDS = (
@@ -85,7 +86,9 @@ def _pick_next_links(links: Set[str]) -> List[str]:
     for link in links:
         lower_link = link.lower()
         score = 0
-        if any(keyword in lower_link for keyword in EVENT_KEYWORDS):
+        if any(keyword in lower_link for keyword in ABOUT_KEYWORDS):
+            score += 6
+        if any(keyword in lower_link for keyword in ROOM_KEYWORDS):
             score += 4
         if any(keyword in lower_link for keyword in AMENITY_KEYWORDS):
             score += 2
