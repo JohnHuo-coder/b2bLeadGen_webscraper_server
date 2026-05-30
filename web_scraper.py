@@ -305,14 +305,9 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
     succeeded = set()
     pages: Dict[str, str] = {}
 
-    # return event_contnt, always check this first, then whole pages for events
-    # no link to events or meeting, likely not considered
-
-    key_words = ["event", "meeting", "conference", "venue",
-                 "promotion", "news", 
-                 "about", 
-                 "facility", "facilities", "amenities", "amenity", "services",
-                 "dining"]
+    key_words = ["about", "overview", "story", "experience", 
+                 "accommodation", "room", "stay", "suite", "guestroom", "offer", "package",
+                 "facility", "facilities", "amenities", "amenity", "services","dining"]
 
     classified_results = defaultdict(list)
     seen_by_key = defaultdict(set)
@@ -327,9 +322,8 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
             continue
         
         soup_for_text = BeautifulSoup(str(soup), "html.parser")
+        # TODO:check if keyword exsist to skip some pages
         text = _clean_content(soup_for_text) 
-        # locate the content if content in class,  
-        # check keyword in url
 
         if text:
             if link_name == "home" and text not in seen_by_key["about"]:
@@ -339,6 +333,7 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
                 if (key in current or key in link_name.lower()) and text not in seen_by_key[key]:
                     seen_by_key[key].add(text)
                     classified_results[key].append(text)
+            # page is no longer useful, could be deleted
             pages[current] = text[:40000]
             
         links, link_to_name = _extract_internal_links(base_url, soup)
@@ -375,25 +370,19 @@ def scrape_hotel_website_summary(
         website_url = f"https://{website_url}"
 
     pages, classified_results = collect_site_content(website_url, max_pages=max_pages)
-    events_meetings = [
-        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
-        for key in ["event", "meeting", "conference", "venue"]
-        if classified_results.get(key)
-    ]
-    promotion_news = [
-        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
-        for key in ["promotion", "news"]
-        if classified_results.get(key)
-    ]
     facility_amenity = [
         key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
         for key in ["facility", "facilities", "amenities", "amenity", "dining"]
         if classified_results.get(key)
     ]
+    room_price = [
+        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
+        for key in ["accommodation", "room", "stay", "suite", "guestroom", "offer", "package"]
+        if classified_results.get(key)
+    ]
 
-    events_meetings = _truncate_chars("\n\n".join(events_meetings), 3200)
-    promotion_news = _truncate_chars("\n\n".join(promotion_news), 1800)
     facility_amenity = _truncate_chars("\n\n".join(facility_amenity), 3200)
+    room_price = _truncate_chars("\n\n".join(room_price), 3200)
     about = _truncate_chars("\n".join(classified_results.get("about", [])), 2000)
 
     if not pages:
@@ -402,8 +391,6 @@ def scrape_hotel_website_summary(
             "status": "failed",
             "error": "Could not fetch website pages.",
             "about": "",
-            "events_meetings": "",
-            "promotion_news": "",
             "facility_amenity": "",
             "dining": ""
         }
@@ -413,7 +400,6 @@ def scrape_hotel_website_summary(
         "status": "ok",
         "pages_scanned": len(pages),
         "about": about,
-        "events_meetings": events_meetings,
-        "promotion_news": promotion_news,
         "facility_amenity": facility_amenity,
+        "room_price": room_price
     }
