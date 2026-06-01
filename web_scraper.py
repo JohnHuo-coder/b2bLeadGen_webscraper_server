@@ -299,6 +299,51 @@ def _clean_content(soup):
     text = render_inline(root)
     return text
 
+def _get_footer_contact(soup):
+    footer = soup.select_one("footer")
+    if not footer: 
+        return ""
+    return footer.get_text(separator="\n", strip=True)
+
+def _extract_email(text, url) -> list:
+    email_pattern = r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+    results = []
+    for match in re.finditer(email_pattern, text):
+        email = match.group()
+        start = max(0, match.start()-300)
+        end = min(len(text), match.end() + 300)
+        context = text[start:end]
+        results.append(
+            {
+                "email": email,
+                "url": url,
+                "context": context
+            }
+        )
+    return results
+
+def _merge_emails(emails):
+    merged = {}
+    for item in emails:
+        email = item["email"].lower()
+
+        if email not in merged:
+            merged[email] = {
+                "email": email,
+                "urls": [],
+                "contexts": []
+            }
+
+        merged[email]["urls"].append(item["url"])
+        merged[email]["contexts"].append(item["context"])
+    return merged
+
+def _extract_email_from_page(soup, url):
+    for tag in soup.select("script, style, noscript"):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+    results = _extract_email(text, url)
+    return results
 
 def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
     queue = deque([base_url])
@@ -307,6 +352,7 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
     visited.add(base_url)
     succeeded = set()
     pages: Dict[str, str] = {}
+    emails: list = []
 
     key_words = ["about", "overview", "story", "experience", 
                  "accommodation", "room", "stay", "suite", "guestroom", "offer", "package",
@@ -325,8 +371,10 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
             continue
         
         soup_for_text = BeautifulSoup(str(soup), "html.parser")
-        # TODO:check if keyword exsist to skip some pages
         text = _clean_content(soup_for_text) 
+
+        soup_for_email_extraction = BeautifulSoup(str(soup), "html.parser")
+        emails.extend(_extract_email_from_page(soup_for_email_extraction, current))
 
         if text:
             if link_name == "home" and text not in seen_by_key["about"]:
@@ -347,8 +395,8 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
                 queue.append(link)
                 link_name = link_to_name[link]
                 link_queue.append(link_name)
-
-    return pages, classified_results
+    emails = _merge_emails(emails)
+    return pages, classified_results, emails
 
 
 def _truncate_chars(text: str, max_chars: int) -> str:
@@ -372,7 +420,7 @@ def scrape_hotel_website_summary(
     if not website_url.startswith(("http://", "https://")):
         website_url = f"https://{website_url}"
 
-    pages, classified_results = collect_site_content(website_url, max_pages=max_pages)
+    pages, classified_results, emails = collect_site_content(website_url, max_pages=max_pages)
     facility_amenity = [
         key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
         for key in ["facility", "facilities", "amenities", "amenity", "dining"]
@@ -383,10 +431,15 @@ def scrape_hotel_website_summary(
         for key in ["accommodation", "room", "stay", "suite", "guestroom", "offer", "package"]
         if classified_results.get(key)
     ]
+    about = [
+        key.upper() + "\n" + "\n".join(classified_results.get(key, [])) + "\n"
+        for key in ["about", "overview", "story", "experience"]
+        if classified_results.get(key)
+    ]
 
     facility_amenity = _truncate_chars("\n\n".join(facility_amenity), 3200)
     room_price = _truncate_chars("\n\n".join(room_price), 3200)
-    about = _truncate_chars("\n".join(classified_results.get("about", [])), 2000)
+    about = _truncate_chars("\n\n".join(about), 3200)
 
     if not pages:
         return {
@@ -395,7 +448,9 @@ def scrape_hotel_website_summary(
             "error": "Could not fetch website pages.",
             "about": "",
             "facility_amenity": "",
-            "dining": ""
+            "room_price": "",
+            "emails": {}
+
         }
 
     return {
@@ -404,5 +459,6 @@ def scrape_hotel_website_summary(
         "pages_scanned": len(pages),
         "about": about,
         "facility_amenity": facility_amenity,
-        "room_price": room_price
+        "room_price": room_price,
+        "emails": emails
     }
