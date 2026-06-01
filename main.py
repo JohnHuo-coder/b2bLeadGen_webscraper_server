@@ -37,10 +37,10 @@ def run_query(body: QueryBody):
             "status": "failed",
             "error": f"Internal Server Error: {e}",
             "about": "",
-            "events_meetings": "",
-            "promotion_news": "",
+            "about": "",
             "facility_amenity": "",
-            "dining": ""
+            "room_price": "",
+            "emails": {}
         }
 
 @app.get("/health")
