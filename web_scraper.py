@@ -354,7 +354,7 @@ def _clean_content(soup):
         tag.decompose()
 
     root = (
-        soup.select_one("main, article, [role='main'], #content, .content, .entry-content")
+        soup.select_one("main, [role='main'], #content, .content, .entry-content")
         or soup.body
         or soup
     )
