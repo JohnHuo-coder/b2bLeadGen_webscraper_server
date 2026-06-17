@@ -1,8 +1,8 @@
 from collections import deque
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
 USER_AGENT = (
@@ -72,7 +72,7 @@ def _looks_like_binary(data: bytes) -> bool:
     return False
 
 
-def _fetch_page(url: str) -> Optional[Tuple[int, str, BeautifulSoup]]:
+def _fetch_page(url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
@@ -81,6 +81,8 @@ def _fetch_page(url: str) -> Optional[Tuple[int, str, BeautifulSoup]]:
         headers={"User-Agent": USER_AGENT},
         timeout=REQUEST_TIMEOUT,
     )
+    if response.status_code == 404:
+        return None
     response.raise_for_status()
 
     content_type = response.headers.get("Content-Type", "")
@@ -92,8 +94,7 @@ def _fetch_page(url: str) -> Optional[Tuple[int, str, BeautifulSoup]]:
         return None
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
-    soup = BeautifulSoup(text, "html.parser")
-    return response.status_code, content_type, soup
+    return BeautifulSoup(text, "html.parser")
 
 
 def _append_anchor_texts(target: List[str], texts: List[str]) -> None:
@@ -106,8 +107,8 @@ def _extract_internal_links(
     base_url: str,
     page_url: str,
     soup: BeautifulSoup,
-) -> Dict[str, Dict[str, object]]:
-    link_map: Dict[str, Dict[str, object]] = {}
+) -> Dict[str, List[str]]:
+    link_map: Dict[str, List[str]] = {}
 
     for a_tag in soup.find_all("a", href=True):
         link_name = a_tag.get_text(" ", strip=True)
@@ -124,19 +125,9 @@ def _extract_internal_links(
             continue
 
         if link not in link_map:
-            link_map[link] = {
-                "anchor_texts": [],
-                "in_nav": False,
-                "in_footer": False,
-            }
-
-        entry = link_map[link]
-        if link_name and link_name not in entry["anchor_texts"]:
-            entry["anchor_texts"].append(link_name)
-        if a_tag.find_parent("nav") is not None:
-            entry["in_nav"] = True
-        if a_tag.find_parent("footer") is not None:
-            entry["in_footer"] = True
+            link_map[link] = []
+        if link_name and link_name not in link_map[link]:
+            link_map[link].append(link_name)
 
     return link_map
 
@@ -145,34 +136,25 @@ def _new_page_entry(
     url: str,
     *,
     anchor_texts: List[str],
-    discovered_from: Optional[str],
     depth: int,
-    in_nav: bool = False,
-    in_footer: bool = False,
 ) -> Dict[str, object]:
     return {
         "url": url,
         "path": urlparse(url).path or "/",
         "anchor_texts": anchor_texts[:],
-        "anchor_text": anchor_texts[0] if anchor_texts else "",
-        "discovered_from": discovered_from,
         "depth": depth,
-        "in_nav": in_nav,
-        "in_footer": in_footer,
         "title": "",
         "h1": "",
-        "status_code": None,
-        "internal_link_count": 0,
         "_fetched": False,
     }
 
 
-def _merge_page_entry(existing: Dict[str, object], meta: Dict[str, object]) -> None:
-    _append_anchor_texts(existing["anchor_texts"], meta["anchor_texts"])
-    if existing["anchor_texts"]:
-        existing["anchor_text"] = existing["anchor_texts"][0]
-    existing["in_nav"] = bool(existing["in_nav"] or meta["in_nav"])
-    existing["in_footer"] = bool(existing["in_footer"] or meta["in_footer"])
+def _merge_anchor_texts(existing: Dict[str, object], anchor_texts: List[str]) -> None:
+    _append_anchor_texts(existing["anchor_texts"], anchor_texts)
+
+
+def _drop_page(pages: Dict[str, Dict[str, object]], url: str) -> None:
+    pages.pop(url, None)
 
 
 def get_urls(base_url: str, max_pages: int = DEFAULT_MAX_PAGES) -> List[Dict[str, object]]:
@@ -184,7 +166,6 @@ def get_urls(base_url: str, max_pages: int = DEFAULT_MAX_PAGES) -> List[Dict[str
         base_url: _new_page_entry(
             base_url,
             anchor_texts=["home"],
-            discovered_from=None,
             depth=0,
         )
     }
@@ -193,43 +174,40 @@ def get_urls(base_url: str, max_pages: int = DEFAULT_MAX_PAGES) -> List[Dict[str
 
     while queue and fetched_count < max_pages:
         current, depth = queue.popleft()
+        if current not in pages:
+            continue
+
         entry = pages[current]
         if entry["_fetched"]:
             continue
 
         entry["_fetched"] = True
         try:
-            fetched = _fetch_page(current)
-            if fetched is None:
+            soup = _fetch_page(current)
+            if soup is None:
+                _drop_page(pages, current)
                 continue
-            status_code, _, soup = fetched
             fetched_count += 1
         except requests.RequestException:
+            _drop_page(pages, current)
             continue
 
-        entry["status_code"] = status_code
         if soup.title and soup.title.string:
             entry["title"] = soup.title.string.strip()
         h1 = soup.find("h1")
         if h1:
             entry["h1"] = h1.get_text(" ", strip=True)
 
-        link_map = _extract_internal_links(base_url, current, soup)
-        entry["internal_link_count"] = len(link_map)
-
-        for link, meta in link_map.items():
+        for link, anchor_texts in _extract_internal_links(base_url, current, soup).items():
             if link not in pages:
                 pages[link] = _new_page_entry(
                     link,
-                    anchor_texts=meta["anchor_texts"],
-                    discovered_from=current,
+                    anchor_texts=anchor_texts,
                     depth=depth + 1,
-                    in_nav=bool(meta["in_nav"]),
-                    in_footer=bool(meta["in_footer"]),
                 )
                 queue.append((link, depth + 1))
             else:
-                _merge_page_entry(pages[link], meta)
+                _merge_anchor_texts(pages[link], anchor_texts)
 
     results = list(pages.values())
     for item in results:

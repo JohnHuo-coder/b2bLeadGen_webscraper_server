@@ -58,7 +58,7 @@ def run_collect_url_query(body: QueryBody):
             "website_url": body.webUrl,
             "status": "failed",
             "error": f"Internal Server Error: {e}",
-            "results": {}
+            "results": []
         }
 
 @app.get("/health")
