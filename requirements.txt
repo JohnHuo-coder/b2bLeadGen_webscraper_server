@@ -2,6 +2,7 @@ fastapi
 uvicorn
 requests
 beautifulsoup4
+simplemma
 python-dotenv
 pydantic
 langchain-core
