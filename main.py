@@ -69,7 +69,7 @@ class UrlFilterBody(BaseModel):
 @app.post("/api/filter_urls")
 def run_filter_url_query(body: UrlFilterBody):
     try:
-        results = filter(body.urlItems, body.keyWordItems)
+        results = filter_urls(body.urlItems, body.keyWordItems)
         return {
             "status": "ok",
             "results": results
