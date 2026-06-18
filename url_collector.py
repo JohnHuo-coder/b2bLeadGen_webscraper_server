@@ -1,5 +1,5 @@
-from collections import deque
-from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -12,7 +12,7 @@ USER_AGENT = (
 )
 REQUEST_TIMEOUT = 15
 DEFAULT_MAX_PAGES = 50
-
+DEFAULT_FETCH_WORKERS = 5
 NON_HTML_EXTENSIONS = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
     ".pdf", ".zip", ".css", ".js", ".json", ".xml",
@@ -157,7 +157,58 @@ def _drop_page(pages: Dict[str, Dict[str, object]], url: str) -> None:
     pages.pop(url, None)
 
 
-def get_urls(base_url: str, max_pages: int = DEFAULT_MAX_PAGES) -> List[Dict[str, object]]:
+def _fetch_and_extract(
+    base_url: str,
+    url: str,
+) -> Tuple[str, Optional[BeautifulSoup], Optional[Dict[str, List[str]]]]:
+    try:
+        soup = _fetch_page(url)
+        if soup is None:
+            return url, None, None
+        link_map = _extract_internal_links(base_url, url, soup)
+        return url, soup, link_map
+    except requests.RequestException:
+        return url, None, None
+
+
+def _apply_fetch_result(
+    pages: Dict[str, Dict[str, object]],
+    url: str,
+    depth: int,
+    soup: BeautifulSoup,
+    link_map: Dict[str, List[str]],
+    next_frontier: List[Tuple[str, int]],
+    next_urls: Set[str],
+) -> None:
+    entry = pages[url]
+    if soup.title and soup.title.string:
+        entry["title"] = soup.title.string.strip()
+    h1 = soup.find("h1")
+    if h1:
+        entry["h1"] = h1.get_text(" ", strip=True)
+
+    for link, anchor_texts in link_map.items():
+        if link not in pages:
+            pages[link] = _new_page_entry(
+                link,
+                anchor_texts=anchor_texts,
+                depth=depth + 1,
+            )
+            if not pages[link]["_fetched"] and link not in next_urls:
+                next_urls.add(link)
+                next_frontier.append((link, depth + 1))
+        else:
+            _merge_anchor_texts(pages[link], anchor_texts)
+            if not pages[link]["_fetched"] and link not in next_urls:
+                next_urls.add(link)
+                next_frontier.append((link, int(pages[link]["depth"])))
+
+
+def get_urls(
+    base_url: str,
+    max_pages: int = DEFAULT_MAX_PAGES,
+    fetch_workers: int = DEFAULT_FETCH_WORKERS,
+) -> List[Dict[str, object]]:
     if not base_url.startswith(("http://", "https://")):
         base_url = f"https://{base_url}"
     base_url = _normalize_url(base_url)
@@ -169,45 +220,48 @@ def get_urls(base_url: str, max_pages: int = DEFAULT_MAX_PAGES) -> List[Dict[str
             depth=0,
         )
     }
-    queue: deque[Tuple[str, int]] = deque([(base_url, 0)])
+    frontier: List[Tuple[str, int]] = [(base_url, 0)]
     fetched_count = 0
+    workers = max(1, fetch_workers)
 
-    while queue and fetched_count < max_pages:
-        current, depth = queue.popleft()
-        if current not in pages:
-            continue
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        while frontier and fetched_count < max_pages:
+            batch: List[Tuple[str, int]] = []
+            for url, depth in frontier:
+                if fetched_count + len(batch) >= max_pages:
+                    break
+                if url not in pages:
+                    continue
+                entry = pages[url]
+                if entry["_fetched"]:
+                    continue
+                entry["_fetched"] = True
+                batch.append((url, depth))
 
-        entry = pages[current]
-        if entry["_fetched"]:
-            continue
+            if not batch:
+                break
 
-        entry["_fetched"] = True
-        try:
-            soup = _fetch_page(current)
-            if soup is None:
-                _drop_page(pages, current)
-                continue
-            fetched_count += 1
-        except requests.RequestException:
-            _drop_page(pages, current)
-            continue
+            futures = {
+                executor.submit(_fetch_and_extract, base_url, url): (url, depth)
+                for url, depth in batch
+            }
 
-        if soup.title and soup.title.string:
-            entry["title"] = soup.title.string.strip()
-        h1 = soup.find("h1")
-        if h1:
-            entry["h1"] = h1.get_text(" ", strip=True)
+            next_frontier: List[Tuple[str, int]] = []
+            next_urls: Set[str] = set()
 
-        for link, anchor_texts in _extract_internal_links(base_url, current, soup).items():
-            if link not in pages:
-                pages[link] = _new_page_entry(
-                    link,
-                    anchor_texts=anchor_texts,
-                    depth=depth + 1,
+            for future in as_completed(futures):
+                url, depth = futures[future]
+                _, soup, link_map = future.result()
+                if soup is None or link_map is None:
+                    _drop_page(pages, url)
+                    continue
+
+                fetched_count += 1
+                _apply_fetch_result(
+                    pages, url, depth, soup, link_map, next_frontier, next_urls
                 )
-                queue.append((link, depth + 1))
-            else:
-                _merge_anchor_texts(pages[link], anchor_texts)
+
+            frontier = next_frontier
 
     results = list(pages.values())
     for item in results:
