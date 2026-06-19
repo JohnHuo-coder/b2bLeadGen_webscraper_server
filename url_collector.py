@@ -216,7 +216,7 @@ def get_urls(
     pages: Dict[str, Dict[str, object]] = {
         base_url: _new_page_entry(
             base_url,
-            anchor_texts=["home"],
+            anchor_texts=["home", "about"],
             depth=0,
         )
     }
