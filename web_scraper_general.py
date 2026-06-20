@@ -236,6 +236,7 @@ def _clean_content(soup):
         tag.decompose()
 
     # remove common reservation widgets and chat launchers
+    protected_tags = {"html", "body", "main", "article"}
     for tag in soup.select(
         "[id*='booking' i], [class*='booking' i], "
         "[id*='reservation' i], [class*='reservation' i], "
@@ -245,6 +246,8 @@ def _clean_content(soup):
         "[id*='enquiry' i], [class*='enquiry' i], [name*='enquiry' i], "
         "[id*='search' i], [class*='search' i], [name*='search' i]"
     ):
+        if tag.name in protected_tags:
+            continue
         tag.decompose()
     
     # remove language menu and currency menu
@@ -269,8 +272,7 @@ def _clean_content(soup):
     )
     # tags that are allowed to be removed by keyword rule
     removable_tags = {"div", "section", "aside", "form", "dialog"}
-    # never remove these structural roots
-    protected_tags = {"html", "body", "main", "article"}
+    # never remove these structural roots (also used above for widget selectors)
 
     to_remove = []
     for tag in soup.find_all(True):
