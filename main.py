@@ -1,3 +1,4 @@
+import base64
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -10,6 +11,7 @@ from pathlib import Path
 from web_scraper_hotel import scrape_hotel_website_summary
 from url_collector import get_urls
 from urls_filter import filter_urls, urlItem, keyWordItem
+from web_scraper_general import scrape_website
 import json
 
 ROOT = Path(__file__).resolve().parent
@@ -80,6 +82,31 @@ def run_filter_url_query(body: UrlFilterBody):
             "error": f"Internal Server Error: {e}",
             "results": []
         }
+
+class SelectedUrlItem(BaseModel):
+    url: str
+    covered_requirements: List[int]
+    reason: str
+
+class ScrapeWebsiteInput(BaseModel):
+    items: List[SelectedUrlItem]
+    max_chars: str
+  
+@app.post("/api/scrape_general")
+def run_scrape_website_general(body: ScrapeWebsiteInput):
+    try:
+        results = scrape_website(body.items, body.max_chars)
+        return {
+            "status": "ok",
+            "results": results
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "error": f"Internal Server Error: {e}",
+            "results": []
+        }
+
 
 @app.get("/health")
 def health() -> dict[str, str]:
