@@ -1,10 +1,6 @@
 import base64
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Any, List
-import os
-from urllib.parse import urlparse, unquote
 
 import sys
 from pathlib import Path
@@ -12,7 +8,7 @@ from web_scraper_hotel import scrape_hotel_website_summary
 from url_collector import get_urls
 from urls_filter import filter_urls, urlItem, keyWordItem
 from web_scraper_general import scrape_website
-import json
+from schemas import QueryBody, UrlFilterBody, ScrapeWebsiteInput
 
 ROOT = Path(__file__).resolve().parent
 
@@ -25,10 +21,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-class QueryBody(BaseModel):
-    webUrl: str
-    maxPage: int
 
 @app.post("/api/scrape/hotel")
 def run_query(body: QueryBody):
@@ -64,9 +56,6 @@ def run_collect_url_query(body: QueryBody):
             "results": []
         }
 
-class UrlFilterBody(BaseModel):
-    urlItems: List[urlItem]
-    keyWordItems: List[keyWordItem]
 
 @app.post("/api/filter_urls")
 def run_filter_url_query(body: UrlFilterBody):
@@ -83,14 +72,6 @@ def run_filter_url_query(body: UrlFilterBody):
             "results": []
         }
 
-class SelectedUrlItem(BaseModel):
-    url: str
-    covered_requirements: List[int]
-    reason: str
-
-class ScrapeWebsiteInput(BaseModel):
-    items: List[SelectedUrlItem]
-    max_chars: str
   
 @app.post("/api/scrape_general")
 def run_scrape_website_general(body: ScrapeWebsiteInput):

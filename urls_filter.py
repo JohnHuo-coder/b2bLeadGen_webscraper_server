@@ -2,7 +2,7 @@ from typing import Dict, List
 
 import re
 import simplemma
-from pydantic import BaseModel
+from schemas import keyWordItem, urlItem
 
 FIELD_WEIGHTS: Dict[str, int] = {
     "path": 3,
@@ -12,22 +12,6 @@ FIELD_WEIGHTS: Dict[str, int] = {
 }
 MULTI_TOPIC_BONUS = 2
 MAX_MULTI_TOPIC_BONUS = 2
-
-
-class urlItem(BaseModel):
-    url: str
-    path: str
-    anchor_texts: List[str]
-    depth: int
-    title: str
-    h1: str
-
-
-class keyWordItem(BaseModel):
-    topic: str
-    aliases: List[str]
-    priority: int  # lower number = higher importance
-    reason: str
 
 
 def path_to_segments(path: str) -> list[str]:
