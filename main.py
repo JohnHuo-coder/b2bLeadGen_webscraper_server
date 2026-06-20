@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from web_scraper_hotel import scrape_hotel_website_summary
 from url_collector import get_urls
-from urls_filter import filter_urls, urlItem, keyWordItem
+from urls_filter import filter_urls
 from web_scraper_general import scrape_website
 from schemas import QueryBody, UrlFilterBody, ScrapeWebsiteInput
 

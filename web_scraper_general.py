@@ -1,13 +1,11 @@
 import re
-from collections import Counter, deque
-from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag, Comment, Doctype, ProcessingInstruction, Declaration
-from collections import defaultdict
-from main import SelectedUrlItem
+from schemas import SelectedUrlItem
+
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
