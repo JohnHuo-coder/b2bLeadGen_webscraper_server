@@ -323,10 +323,22 @@ def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
         try:
             fetched = _fetch_page(url)
             if fetched is None:
+                result = {
+                    **url_item.model_dump(),
+                    "content": "",
+                    "error_type": "no content"
+                }
+                results.append(result)
                 continue
             _, soup = fetched
 
         except requests.RequestException:
+            result = {
+                    **url_item.model_dump(),
+                    "content": "",
+                    "error_type": "request error"
+                }
+            results.append(result)
             continue
         
         soup_for_text = BeautifulSoup(str(soup), "html.parser")
@@ -336,9 +348,16 @@ def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
             text = _truncate_blocks(blocks, max_chars)
             result = {
                 **url_item.model_dump(),
-                "content": text
+                "content": text,
+                "error_type": ""
             }
-            results.append(result)
+        else:
+            result = {
+                    **url_item.model_dump(),
+                    "content": "",
+                    "error_type": "no content after cleaning"
+                }
+        results.append(result)
     return results
 
 
