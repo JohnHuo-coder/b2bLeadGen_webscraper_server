@@ -27,6 +27,7 @@ class UrlFilterBody(BaseModel):
 
 class SelectedUrlItem(BaseModel):
     url: str
+    requirements: List[int]
 
 class ScrapeWebsiteInput(BaseModel):
     items: List[SelectedUrlItem]
