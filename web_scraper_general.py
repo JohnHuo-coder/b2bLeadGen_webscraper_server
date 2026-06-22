@@ -215,11 +215,32 @@ def smart_render_blocks(root: Tag) -> List[str]:
             if txt:
                 chunks.append(txt)
 
-    return [re.sub(r"\n{3,}", "\n\n", c).strip() for c in chunks if c.strip()]
+    cleaned = [re.sub(r"\n{3,}", "\n\n", c).strip() for c in chunks if c.strip()]
+    if cleaned:
+        return cleaned
+
+    text = re.sub(r"\n{3,}", "\n\n", render_inline(root)).strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split("\n\n") if p.strip()]
+    return parts if parts else [text]
 
 
 def smart_render(root: Tag) -> str:
     return "\n\n".join(smart_render_blocks(root))
+
+def _content_root(soup: BeautifulSoup) -> Tag:
+    root = (
+        soup.select_one("main, [role='main'], #content, .content, .entry-content")
+        or soup.body
+        or soup
+    )
+    if getattr(root, "name", None) == "body":
+        inner_body = root.find("body")
+        if inner_body:
+            root = inner_body
+    return root
+
 
 def _clean_content(soup):
     for tag in soup.select(
@@ -291,12 +312,7 @@ def _clean_content(soup):
     for tag in to_remove:
         tag.decompose()
 
-    root = (
-        soup.select_one("main, [role='main'], #content, .content, .entry-content")
-        or soup.body
-        or soup
-    )
-    return smart_render_blocks(root)
+    return smart_render_blocks(_content_root(soup))
 
 
 def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
