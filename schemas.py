@@ -32,3 +32,6 @@ class SelectedUrlItem(BaseModel):
 class ScrapeWebsiteInput(BaseModel):
     items: List[SelectedUrlItem]
     max_chars: int
+
+class ScrapeEmailsInput(BaseModel):
+    items: List[SelectedUrlItem]

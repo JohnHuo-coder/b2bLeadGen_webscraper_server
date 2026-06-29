@@ -8,7 +8,8 @@ from web_scraper_hotel import scrape_hotel_website_summary
 from url_collector import get_urls
 from urls_filter import filter_urls
 from web_scraper_general import scrape_website
-from schemas import QueryBody, UrlFilterBody, ScrapeWebsiteInput
+from schemas import QueryBody, UrlFilterBody, ScrapeWebsiteInput, ScrapeEmailsInput
+from web_email_scraper import collect_site_emails
 
 ROOT = Path(__file__).resolve().parent
 
@@ -86,6 +87,21 @@ def run_scrape_website_general(body: ScrapeWebsiteInput):
             "status": "failed",
             "error": f"Internal Server Error: {e}",
             "results": []
+        }
+    
+@app.post("/api/scrape_email")
+def run_scrape_website_emails(body: ScrapeEmailsInput):
+    try:
+        emails = collect_site_emails(body.items)
+        return {
+            "status": "ok",
+            "results": emails
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "error": f"Internal Server Error: {e}",
+            "results": {}
         }
 
 
