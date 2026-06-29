@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from schemas import SelectedUrlItem
 
 USER_AGENT = (
@@ -98,14 +98,48 @@ def _extract_email(text, url) -> list:
     return results
 
 
+def _find_context_container(tag: Tag) -> Tag:
+    for name in ("footer", "section", "article", "aside", "nav", "ul", "ol", "table"):
+        parent = tag.find_parent(name)
+        if parent is not None:
+            return parent
+    return tag.find_parent(["div", "p", "li", "td", "span"]) or tag
+
+
+def _context_for_element(tag: Tag, email: str, radius: int = 300) -> str:
+    containers = [_find_context_container(tag)]
+    body = tag.find_parent("body")
+    if body is not None and body not in containers:
+        containers.append(body)
+
+    visible = tag.get_text(strip=True)
+    for container in containers:
+        text = container.get_text(separator="\n", strip=True)
+        if not text:
+            continue
+
+        anchor = email if email in text else visible
+        if not anchor or anchor not in text:
+            if len(text) <= radius * 2:
+                return text
+            continue
+
+        idx = text.find(anchor)
+        snippet = _context_around(text, idx, idx + len(anchor), radius)
+        if email and anchor != email:
+            snippet = snippet.replace(anchor, email, 1)
+        return snippet
+
+    return email
+
+
 def _extract_obfuscated_emails(soup: BeautifulSoup, url: str) -> list:
     results = []
     for tag in soup.select("[data-cfemail]"):
         email = _decode_cfemail(tag.get("data-cfemail", ""))
         if not email:
             continue
-        parent = tag.find_parent(["li", "p", "div", "td", "span"])
-        context = parent.get_text(separator="\n", strip=True) if parent else tag.get_text(strip=True)
+        context = _context_for_element(tag, email)
         _append_email(results, email, url, context)
     return results
 
@@ -117,8 +151,7 @@ def _extract_mailto_emails(soup: BeautifulSoup, url: str) -> list:
         email = href.split("mailto:", 1)[1].split("?", 1)[0].strip()
         if not EMAIL_PATTERN.fullmatch(email):
             continue
-        parent = tag.find_parent(["li", "p", "div", "td", "span"])
-        context = parent.get_text(separator="\n", strip=True) if parent else tag.get_text(strip=True)
+        context = _context_for_element(tag, email)
         _append_email(results, email, url, context)
     return results
 
