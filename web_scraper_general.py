@@ -68,7 +68,7 @@ def _looks_like_binary(data: bytes) -> bool:
     return False
 
 
-def _fetch_page(url: str) -> Optional[Tuple[str, BeautifulSoup]]:
+def _fetch_page(url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
@@ -88,8 +88,7 @@ def _fetch_page(url: str) -> Optional[Tuple[str, BeautifulSoup]]:
         return None
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
-    soup = BeautifulSoup(text, "html.parser")
-    return text, soup
+    return BeautifulSoup(text, "html.parser")
 
 
 def render_table(table: Tag) -> str:
@@ -321,8 +320,8 @@ def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
         result = {}
         url = url_item.url
         try:
-            fetched = _fetch_page(url)
-            if fetched is None:
+            soup = _fetch_page(url)
+            if soup is None:
                 result = {
                     **url_item.model_dump(),
                     "content": "",
@@ -330,7 +329,6 @@ def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
                 }
                 results.append(result)
                 continue
-            _, soup = fetched
 
         except requests.RequestException:
             result = {
@@ -340,9 +338,8 @@ def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
                 }
             results.append(result)
             continue
-        
-        soup_for_text = BeautifulSoup(str(soup), "html.parser")
-        blocks = _clean_content(soup_for_text)
+
+        blocks = _clean_content(soup)
 
         if blocks:
             text = _truncate_blocks(blocks, max_chars)

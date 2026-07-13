@@ -109,16 +109,40 @@ Return JSON with this exact shape:
 """.strip()
 
 
-ICE_BREAKER_SYSTEM = """You write concise B2B cold emails for hospitality/outreach.
+ICE_BREAKER_SYSTEM = """You write concise B2B partnership outreach emails for Bangkok hotels.
+
+Context: You represent Suvarnaveda, a wellness/medspa program seeking hotel accommodation
+partners. Program guests receive treatments at the Suvarnaveda wellness center and stay at a
+partner hotel to rest and recover during treatment days. The email's goal is to gauge whether
+the hotel is open to exploring this B2B accommodation partnership — not to sell individual
+room nights or pitch a generic vendor relationship.
 
 Rules:
-- Open with ONE specific, accurate detail from WEBSITE CONTENT (a fact: amenity, location angle, event, positioning—whatever is actually stated there). Do not invent awards, dates, or claims not present in the text.
-- If the content is thin or generic, stay honest: refer broadly to what their site emphasizes without fabricating details.
-- Then briefly introduce why you're reaching out and state the collaboration intent clearly (use the provided intent; you may rephrase but keep the meaning).
-- Tone: professional, warm, not salesy; no flattery piles; no emojis unless the user content suggests casual brand voice.
+- Open with ONE specific, accurate detail from ABOUT that connects naturally to wellness guests
+  needing a quiet, restful stay (positioning, ambiance, vibe — whatever is actually stated).
+  AMENITIES may support or reinforce the hook but must not replace a thin or missing about fact.
+  Do not invent awards, dates, or claims not present in the text.
+- If the content is thin or generic, stay honest: refer broadly to what their site emphasizes
+  without fabricating details.
+- Briefly explain the partnership: guests stay at the hotel during treatment days at the nearby
+  wellness center. Use the provided collaboration intent; you may rephrase but keep the meaning.
+- End with a low-pressure ask: whether they would be open to a short conversation about becoming
+  an accommodation partner for combined wellness packages.
+- If recipient full name is empty, use a generic greeting (Hi there, Dear team, or
+  Dear [property name] team). Use recipient email only to choose between personal vs team or
+  department greeting. Never invent a person's name.
+- Tone: professional, warm, not salesy; no flattery piles; no emojis unless the user content
+  suggests casual brand voice.
 - Length: roughly 90-160 words for the body.
 - Do not include a fake "unsubscribe" block. Sign off simply (use sender name if provided).
 """
+
+ICE_BREAKER_DEFAULT_COLLABORATION_INTENT = """
+We run Suvarnaveda, a wellness/medspa program in Bangkok. Our guests receive treatments at
+our wellness center and need a quiet, restful hotel nearby to stay during treatment days.
+We are reaching out to explore whether your property would be interested in a B2B accommodation
+partnership — combined wellness packages where your hotel is the guest stay partner.
+""".strip()
 
 def build_hotel_eval_user_prompt(
     about_text: str,
@@ -151,50 +175,141 @@ def build_icebreaker_user_prompt(
     recipient_name: str,
     recipient_email: str,
     sender_name: str,
-    collaboration_intent: str,
+    collaboration_intent: str = "",
     about_text: str,
-    meetings_events_text: str,
     amenities_text: str,
-    location_text: str,
-    other_context: str = "",
 ) -> str:
+    intent = collaboration_intent.strip() or ICE_BREAKER_DEFAULT_COLLABORATION_INTENT
+    greeting_name = (recipient_name or "").strip() or "(none)"
     return f"""
 Company / property name: {company_name or "Unknown"}
-Recipient full name (for greeting): {recipient_name}
+Recipient full name (for greeting): {greeting_name}
 Recipient email (for salutation context only): {recipient_email}
 Sender name (sign if non-empty): {sender_name}
-Collaboration intent:
-{collaboration_intent}
+Collaboration intent (partnership outreach — gauge hotel interest):
+{intent}
 WRITING PRIORITY (very important):
-1) Prefer opening with ONE concrete fact from MEETINGS & EVENTS.
-2) If meetings/events is too thin, use AMENITIES.
-3) Then ABOUT.
-4) Then LOCATION.
-5) Use OTHER CONTEXT only as fallback.
+1) ABOUT is the primary source. Open with ONE concrete fact that signals quiet, cozy, or
+   restful positioning — best fit for wellness guests between treatment days.
+2) AMENITIES is secondary: use only to reinforce or infer restful fit when about is thin or
+   generic (e.g. peaceful rooms, relaxation facilities). Do not lead with amenities if about
+   has a stronger positioning signal.
 Constraints:
-- Use only facts from provided sections.
+- Use only facts from ABOUT and AMENITIES.
 - No fabricated awards, dates, or claims.
 - Keep body 90-160 words.
 - Tone: professional, warm, concise.
-- End with a clear collaboration ask aligned to the intent.
-MEETINGS & EVENTS:
----
-{meetings_events_text}
----
-AMENITIES:
----
-{amenities_text}
----
-ABOUT:
+- Frame the ask as exploring B2B accommodation partnership interest, not a hard sell.
+ABOUT (primary):
 ---
 {about_text}
 ---
-LOCATION:
+AMENITIES (secondary — inference / reinforcement only):
 ---
-{location_text}
+{amenities_text}
 ---
-OTHER CONTEXT (fallback):
----
-{other_context}
----
+""".strip()
+
+
+EMAIL_CONTACT_CLASSIFY_SYSTEM_PROMPT = """
+You are a hospitality contact-intelligence analyst. Your job is to classify each email
+address found on a hotel/property website by the most likely role or department of the
+person or inbox it reaches.
+
+You will receive:
+- emails: scraped email records, each with:
+  - email: the address
+  - urls: page URL(s) where it appeared
+  - contexts: surrounding text snippet(s) from those pages (~300 chars each side of the email)
+
+Use ALL three signals — email local-part/domain, page URL path, and on-page context — and
+prefer explicit evidence (job titles, department labels, section headings) over guessing.
+
+Contact role taxonomy (use exactly one `contact_role` per email):
+
+- general_manager — GM, General Manager, Hotel Manager, Property Manager, Owner, CEO,
+  Managing Director, President, Director of Operations
+- sales — Sales Manager/Director, Corporate Sales, Group Sales, Commercial Director, Events,
+  MICE, Banquets, Conferences
+- marketing — Marketing Manager/Director, Communications, PR, Brand, Digital Marketing
+- other — everything else: spa, wellness, reservations, front desk, F&B, HR, finance, IT, legal,
+  generic inboxes (info@, contact@, hello@), or insufficient/conflicting evidence
+
+Classification rules:
+1) If job title or department appears in context, that overrides generic local-parts.
+   Example: "Jane Lee, Sales Director" next to jane.lee@… → sales (not other).
+2) URL path hints: /sales, /corporate → sales; /marketing, /press → marketing;
+   /contact or /about with no title → other unless context names a GM/sales/marketing role.
+3) Personal-name emails (firstname.lastname@) with no context: contact_role = other, lower confidence.
+4) Same email on multiple pages: merge evidence; pick the single best-fit role.
+5) Do not invent people, titles, or departments not supported by the provided data.
+6) confidence is 0-100 integer per email:
+   - 85-100: explicit title/department in context OR unambiguous local-part (e.g. gm@, sales@)
+   - 60-84: strong URL + context alignment, or clear section label without full title
+   - 35-59: weak hints only (e.g. info@ on contact page, no named role)
+   - 0-34: guesswork; prefer other with low confidence
+
+Output valid JSON only. No markdown, no extra commentary.
+
+Return JSON with this exact shape:
+{
+  "classifications": [
+    {
+      "email": "",
+      "contact_role": "",
+      "confidence": 0,
+      "likely_contact_name": "",
+      "reasoning": "",
+      "evidence": {
+        "from_email": "",
+        "from_url": "",
+        "from_context": ""
+      }
+    }
+  ]
+}
+
+Notes on likely_contact_name:
+- Extract only if a person's name appears in context near the email; otherwise use empty string.
+- Do not infer a name from the email local-part alone unless it is clearly firstname.lastname.
+""".strip()
+
+
+def build_email_contact_classify_user_prompt(
+    *,
+    emails: dict,
+) -> str:
+    """Build user prompt for classifying scraped hotel contact emails by role/department."""
+    if not emails:
+        return """
+Classify contact roles for all emails found on this property website.
+
+emails:
+(none found)
+""".strip()
+
+    blocks = []
+    for email, data in emails.items():
+        urls = data.get("urls") or []
+        contexts = data.get("contexts") or []
+        url_lines = "\n".join(f"  - {u}" for u in urls) or "  - (none)"
+        ctx_blocks = []
+        for i, ctx in enumerate(contexts, 1):
+            ctx_blocks.append(f"  [context {i}]\n{ctx}")
+        context_text = "\n\n".join(ctx_blocks) if ctx_blocks else "  (none)"
+        blocks.append(
+            f"email: {email}\n"
+            f"found_on_urls:\n{url_lines}\n"
+            f"contexts:\n{context_text}"
+        )
+
+    email_section = "\n\n---\n\n".join(blocks)
+
+    return f"""
+Classify the contact role for each email below from this hotel/property website.
+Use email address, page URL(s), and surrounding context. Return one classification per email.
+
+emails ({len(blocks)} total):
+
+{email_section}
 """.strip()

@@ -10,8 +10,6 @@ FIELD_WEIGHTS: Dict[str, int] = {
     "h1": 2,
     "anchor": 1,
 }
-MULTI_TOPIC_BONUS = 2
-MAX_MULTI_TOPIC_BONUS = 2
 
 
 def path_to_segments(path: str) -> list[str]:
@@ -63,6 +61,7 @@ def _prepare_keywords(keywords: List[keyWordItem]) -> List[dict]:
                 "topic": kw.topic,
                 "priority": kw.priority,
                 "patterns": patterns,
+                "supports_requirements": kw.supports_requirements or []
             })
     return prepared
 
@@ -113,6 +112,7 @@ def _find_matched_topics(
                 "topic": kw["topic"],
                 "priority": kw["priority"],
                 "matched_in": matched_in,
+                "supports_requirements": kw["supports_requirements"]
             })
     return matched
 
@@ -122,27 +122,42 @@ def _priority_weight(priority: int, max_priority: int) -> int:
     return max_priority - priority + 1
 
 
-def _compute_score(matched_topics: List[dict], max_priority: int) -> int:
-    if not matched_topics:
-        return 0
+def _collect_all_requirements(keywords: List[keyWordItem]) -> List[int]:
+    seen: set[int] = set()
+    requirements: List[int] = []
+    for kw in keywords:
+        for req in kw.supports_requirements or []:
+            if req not in seen:
+                seen.add(req)
+                requirements.append(req)
+    return requirements
 
-    score = 0
+
+def _compute_requirement_scores(
+    matched_topics: List[dict],
+    max_priority: int,
+    all_requirements: List[int],
+) -> tuple[Dict[int, int], int]:
+    scores = {req: 0 for req in all_requirements}
+    if not matched_topics:
+        return scores, 0
+
     for entry in matched_topics:
         best_weight = max(
             FIELD_WEIGHTS[field] for field in entry["matched_in"]
         )
-        score += _priority_weight(entry["priority"], max_priority) * best_weight
+        topic_score = _priority_weight(entry["priority"], max_priority) * best_weight
+        for req in entry["supports_requirements"]:
+            if req in scores:
+                scores[req] += topic_score
 
-    if len(matched_topics) > 1:
-        bonus_topics = min(len(matched_topics) - 1, MAX_MULTI_TOPIC_BONUS)
-        score += bonus_topics * MULTI_TOPIC_BONUS
-
-    return score
+    return scores, sum(scores.values())
 
 
 def filter_urls(items: List[urlItem], keywords: List[keyWordItem]) -> List[dict]:
     prepared_kws = _prepare_keywords(keywords)
     max_priority = max(kw.priority for kw in keywords) if keywords else 1
+    all_requirements = _collect_all_requirements(keywords)
 
     results: List[dict] = []
     for item in items:
@@ -150,10 +165,14 @@ def filter_urls(items: List[urlItem], keywords: List[keyWordItem]) -> List[dict]
         matched_topics = _find_matched_topics(fields, prepared_kws)
         if not matched_topics:
             continue
+        requirement_scores, score = _compute_requirement_scores(
+            matched_topics, max_priority, all_requirements
+        )
         results.append({
             **item.model_dump(),
             "matched_topics": matched_topics,
-            "score": _compute_score(matched_topics, max_priority),
+            "requirement_scores": requirement_scores,
+            "score": score,
         })
 
     results.sort(key=lambda r: (r["depth"], -r["score"], r["url"]))

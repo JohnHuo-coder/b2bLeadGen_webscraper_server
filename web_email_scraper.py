@@ -182,7 +182,7 @@ def _extract_email_from_page(soup, url):
     results.extend(_extract_email(text, url))
     return results
 
-def _fetch_page(url: str) -> Optional[Tuple[str, BeautifulSoup]]:
+def _fetch_page(url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
@@ -202,8 +202,7 @@ def _fetch_page(url: str) -> Optional[Tuple[str, BeautifulSoup]]:
         return None
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
-    soup = BeautifulSoup(text, "html.parser")
-    return text, soup
+    return BeautifulSoup(text, "html.parser")
 
 
 def collect_site_emails(urls: List[SelectedUrlItem]):
@@ -211,15 +210,13 @@ def collect_site_emails(urls: List[SelectedUrlItem]):
     for url_item in urls:
         url = url_item.url
         try:
-            fetched = _fetch_page(url)
-            if fetched is None:
+            soup = _fetch_page(url)
+            if soup is None:
                 continue
-            _, soup = fetched
 
         except requests.RequestException:
             continue
 
-        soup_for_email_extraction = BeautifulSoup(str(soup), "html.parser")
-        emails.extend(_extract_email_from_page(soup_for_email_extraction, url))
+        emails.extend(_extract_email_from_page(soup, url))
     emails = _merge_emails(emails)
     return emails

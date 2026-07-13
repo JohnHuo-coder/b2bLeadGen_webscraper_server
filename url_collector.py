@@ -12,7 +12,7 @@ USER_AGENT = (
 )
 REQUEST_TIMEOUT = 15
 DEFAULT_MAX_PAGES = 50
-DEFAULT_FETCH_WORKERS = 5
+DEFAULT_FETCH_WORKERS = 3
 NON_HTML_EXTENSIONS = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
     ".pdf", ".zip", ".css", ".js", ".json", ".xml",

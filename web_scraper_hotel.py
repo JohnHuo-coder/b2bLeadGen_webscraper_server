@@ -119,7 +119,7 @@ def _extract_internal_links(base_url: str, soup: BeautifulSoup) -> Set[str]:
     return links, link_to_name
 
 
-def _fetch_page(url: str) -> Optional[Tuple[str, BeautifulSoup]]:
+def _fetch_page(url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
@@ -139,8 +139,7 @@ def _fetch_page(url: str) -> Optional[Tuple[str, BeautifulSoup]]:
         return None
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
-    soup = BeautifulSoup(text, "html.parser")
-    return text, soup
+    return BeautifulSoup(text, "html.parser")
 
 
 def _pick_next_links(links: Set[str]) -> List[str]:
@@ -427,19 +426,16 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
         current = queue.popleft()
         link_name = link_queue.popleft()
         try:
-            fetched = _fetch_page(current)
-            if fetched is None:
+            soup = _fetch_page(current)
+            if soup is None:
                 continue
-            _, soup = fetched
             succeeded.add(current)
         except requests.RequestException:
             continue
-        
-        soup_for_text = BeautifulSoup(str(soup), "html.parser")
-        text = _clean_content(soup_for_text) 
 
-        soup_for_email_extraction = BeautifulSoup(str(soup), "html.parser")
-        emails.extend(_extract_email_from_page(soup_for_email_extraction, current))
+        links, link_to_name = _extract_internal_links(base_url, soup)
+        emails.extend(_extract_email_from_page(soup, current))
+        text = _clean_content(soup)
 
         if text:
             if link_name == "home" and text not in seen_by_key["about"]:
@@ -451,8 +447,7 @@ def collect_site_content(base_url: str, max_pages: int = MAX_PAGES):
                     classified_results[key].append(text)
             # page is no longer useful, could be deleted
             pages[current] = text[:40000]
-            
-        links, link_to_name = _extract_internal_links(base_url, soup)
+
         ranked =  _pick_next_links(links)
         for link in ranked:
             if link not in visited and len(queue) < max_pages * 2:

@@ -20,6 +20,7 @@ class keyWordItem(BaseModel):
     aliases: List[str]
     priority: int  # lower number = higher importance
     reason: str
+    supports_requirements: List[int] = []
 
 class UrlFilterBody(BaseModel):
     urlItems: List[urlItem]
