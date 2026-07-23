@@ -226,6 +226,7 @@ async def get_urls(
         headers={"User-Agent": USER_AGENT},
         timeout=REQUEST_TIMEOUT,
         limits=limits,
+        follow_redirects=True,
     ) as client:
         while frontier and fetched_count < max_pages:
             batch: List[Tuple[str, int]] = []

@@ -373,6 +373,7 @@ async def collect_site_content(
         headers={"User-Agent": USER_AGENT},
         timeout=REQUEST_TIMEOUT,
         limits=limits,
+        follow_redirects=True,
     ) as client:
         return await asyncio.gather(
             *[process_one(client, url_item) for url_item in urls]

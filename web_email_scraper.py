@@ -236,6 +236,7 @@ async def collect_site_emails(
         headers={"User-Agent": USER_AGENT},
         timeout=REQUEST_TIMEOUT,
         limits=limits,
+        follow_redirects=True,
     ) as client:
         batches = await asyncio.gather(
             *[process_one(client, url_item) for url_item in urls]
