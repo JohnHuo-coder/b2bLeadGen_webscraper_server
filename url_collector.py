@@ -1,7 +1,7 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Set, Tuple
+import asyncio
 
-import requests
+import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
@@ -72,15 +72,11 @@ def _looks_like_binary(data: bytes) -> bool:
     return False
 
 
-def _fetch_page(url: str) -> Optional[BeautifulSoup]:
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
-    response = requests.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        timeout=REQUEST_TIMEOUT,
-    )
+    response = await client.get(url)
     if response.status_code == 404:
         return None
     response.raise_for_status()
@@ -157,17 +153,18 @@ def _drop_page(pages: Dict[str, Dict[str, object]], url: str) -> None:
     pages.pop(url, None)
 
 
-def _fetch_and_extract(
+async def _fetch_and_extract(
+    client: httpx.AsyncClient,
     base_url: str,
     url: str,
 ) -> Tuple[str, Optional[BeautifulSoup], Optional[Dict[str, List[str]]]]:
     try:
-        soup = _fetch_page(url)
+        soup = await _fetch_page(client, url)
         if soup is None:
             return url, None, None
         link_map = _extract_internal_links(base_url, url, soup)
         return url, soup, link_map
-    except requests.RequestException:
+    except httpx.HTTPError:
         return url, None, None
 
 
@@ -204,7 +201,7 @@ def _apply_fetch_result(
                 next_frontier.append((link, int(pages[link]["depth"])))
 
 
-def get_urls(
+async def get_urls(
     base_url: str,
     max_pages: int = DEFAULT_MAX_PAGES,
     fetch_workers: int = DEFAULT_FETCH_WORKERS,
@@ -223,8 +220,13 @@ def get_urls(
     frontier: List[Tuple[str, int]] = [(base_url, 0)]
     fetched_count = 0
     workers = max(1, fetch_workers)
+    limits = httpx.Limits(max_connections=workers, max_keepalive_connections=workers)
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
+    async with httpx.AsyncClient(
+        headers={"User-Agent": USER_AGENT},
+        timeout=REQUEST_TIMEOUT,
+        limits=limits,
+    ) as client:
         while frontier and fetched_count < max_pages:
             batch: List[Tuple[str, int]] = []
             for url, depth in frontier:
@@ -241,17 +243,17 @@ def get_urls(
             if not batch:
                 break
 
-            futures = {
-                executor.submit(_fetch_and_extract, base_url, url): (url, depth)
-                for url, depth in batch
-            }
+            fetch_results = await asyncio.gather(
+                *[
+                    _fetch_and_extract(client, base_url, url)
+                    for url, _depth in batch
+                ]
+            )
 
             next_frontier: List[Tuple[str, int]] = []
             next_urls: Set[str] = set()
 
-            for future in as_completed(futures):
-                url, depth = futures[future]
-                _, soup, link_map = future.result()
+            for (url, depth), (_fetched_url, soup, link_map) in zip(batch, fetch_results):
                 if soup is None or link_map is None:
                     _drop_page(pages, url)
                     continue

@@ -1,8 +1,8 @@
-import base64
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import sys
 from pathlib import Path
 from web_scraper_hotel import scrape_hotel_website_summary
 from url_collector import get_urls
@@ -41,9 +41,9 @@ def run_query(body: QueryBody):
         }
 
 @app.post("/api/collect_urls")
-def run_collect_url_query(body: QueryBody):
+async def run_collect_url_query(body: QueryBody):
     try:
-        results = get_urls(body.webUrl, body.maxPage)
+        results = await get_urls(body.webUrl, body.maxPage)
         return {
             "website_url": body.webUrl,
             "status": "ok",
@@ -59,9 +59,11 @@ def run_collect_url_query(body: QueryBody):
 
 
 @app.post("/api/filter_urls")
-def run_filter_url_query(body: UrlFilterBody):
+async def run_filter_url_query(body: UrlFilterBody):
     try:
-        results = filter_urls(body.urlItems, body.keyWordItems)
+        results = await asyncio.to_thread(
+            filter_urls, body.urlItems, body.keyWordItems
+        )
         return {
             "status": "ok",
             "results": results
@@ -73,11 +75,11 @@ def run_filter_url_query(body: UrlFilterBody):
             "results": []
         }
 
-  
+
 @app.post("/api/scrape_general")
-def run_scrape_website_general(body: ScrapeWebsiteInput):
+async def run_scrape_website_general(body: ScrapeWebsiteInput):
     try:
-        results = scrape_website(body.items, body.max_chars)
+        results = await scrape_website(body.items, body.max_chars)
         return {
             "status": "ok",
             "results": results
@@ -88,11 +90,12 @@ def run_scrape_website_general(body: ScrapeWebsiteInput):
             "error": f"Internal Server Error: {e}",
             "results": []
         }
-    
+
+
 @app.post("/api/scrape_email")
-def run_scrape_website_emails(body: ScrapeEmailsInput):
+async def run_scrape_website_emails(body: ScrapeEmailsInput):
     try:
-        emails = collect_site_emails(body.items)
+        emails = await collect_site_emails(body.items)
         return {
             "status": "ok",
             "results": emails
@@ -106,5 +109,5 @@ def run_scrape_website_emails(body: ScrapeEmailsInput):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
     return {"status": "ok"}

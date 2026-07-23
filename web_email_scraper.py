@@ -1,8 +1,9 @@
 import re
+import asyncio
 from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
-import requests
+import httpx
 from bs4 import BeautifulSoup, Tag
 from schemas import SelectedUrlItem
 
@@ -13,6 +14,7 @@ USER_AGENT = (
 )
 
 REQUEST_TIMEOUT = 15
+DEFAULT_SCRAPE_CONCURRENCY = 5
 
 NON_HTML_EXTENSIONS = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
@@ -182,15 +184,11 @@ def _extract_email_from_page(soup, url):
     results.extend(_extract_email(text, url))
     return results
 
-def _fetch_page(url: str) -> Optional[BeautifulSoup]:
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
-    response = requests.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        timeout=REQUEST_TIMEOUT,
-    )
+    response = await client.get(url)
     response.raise_for_status()
 
     content_type = response.headers.get("Content-Type", "")
@@ -205,18 +203,43 @@ def _fetch_page(url: str) -> Optional[BeautifulSoup]:
     return BeautifulSoup(text, "html.parser")
 
 
-def collect_site_emails(urls: List[SelectedUrlItem]):
-    emails = []
-    for url_item in urls:
-        url = url_item.url
-        try:
-            soup = _fetch_page(url)
-            if soup is None:
-                continue
+async def _scrape_emails_from_url(
+    client: httpx.AsyncClient,
+    url: str,
+) -> list:
+    try:
+        soup = await _fetch_page(client, url)
+        if soup is None:
+            return []
+    except httpx.HTTPError:
+        return []
 
-        except requests.RequestException:
-            continue
+    return _extract_email_from_page(soup, url)
 
-        emails.extend(_extract_email_from_page(soup, url))
-    emails = _merge_emails(emails)
-    return emails
+
+async def collect_site_emails(
+    urls: List[SelectedUrlItem],
+    scrape_concurrency: int = DEFAULT_SCRAPE_CONCURRENCY,
+):
+    if not urls:
+        return {}
+
+    workers = max(1, scrape_concurrency)
+    limits = httpx.Limits(max_connections=workers, max_keepalive_connections=workers)
+    semaphore = asyncio.Semaphore(workers)
+
+    async def process_one(client: httpx.AsyncClient, url_item: SelectedUrlItem) -> list:
+        async with semaphore:
+            return await _scrape_emails_from_url(client, url_item.url)
+
+    async with httpx.AsyncClient(
+        headers={"User-Agent": USER_AGENT},
+        timeout=REQUEST_TIMEOUT,
+        limits=limits,
+    ) as client:
+        batches = await asyncio.gather(
+            *[process_one(client, url_item) for url_item in urls]
+        )
+
+    emails = [item for batch in batches for item in batch]
+    return _merge_emails(emails)

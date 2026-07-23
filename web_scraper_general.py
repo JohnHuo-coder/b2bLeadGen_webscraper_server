@@ -1,8 +1,9 @@
 import re
+import asyncio
 from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
-import requests
+import httpx
 from bs4 import BeautifulSoup, NavigableString, Tag, Comment, Doctype, ProcessingInstruction, Declaration
 from schemas import SelectedUrlItem
 
@@ -14,6 +15,7 @@ USER_AGENT = (
 )
 
 REQUEST_TIMEOUT = 15
+DEFAULT_SCRAPE_CONCURRENCY = 5
 
 NON_HTML_EXTENSIONS = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
@@ -68,15 +70,11 @@ def _looks_like_binary(data: bytes) -> bool:
     return False
 
 
-def _fetch_page(url: str) -> Optional[BeautifulSoup]:
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[BeautifulSoup]:
     if not _is_likely_html_url(url):
         return None
 
-    response = requests.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        timeout=REQUEST_TIMEOUT,
-    )
+    response = await client.get(url)
     response.raise_for_status()
 
     content_type = response.headers.get("Content-Type", "")
@@ -314,48 +312,71 @@ def _clean_content(soup):
     return smart_render_blocks(_content_root(soup))
 
 
-def collect_site_content(urls: List[SelectedUrlItem], max_chars: int):
-    results = []
-    for url_item in urls:
-        result = {}
-        url = url_item.url
-        try:
-            soup = _fetch_page(url)
-            if soup is None:
-                result = {
-                    **url_item.model_dump(),
-                    "content": "",
-                    "error_type": "no content"
-                }
-                results.append(result)
-                continue
-
-        except requests.RequestException:
-            result = {
-                    **url_item.model_dump(),
-                    "content": "",
-                    "error_type": "request error"
-                }
-            results.append(result)
-            continue
-
-        blocks = _clean_content(soup)
-
-        if blocks:
-            text = _truncate_blocks(blocks, max_chars)
-            result = {
+async def _scrape_one_url(
+    client: httpx.AsyncClient,
+    url_item: SelectedUrlItem,
+    max_chars: int,
+) -> dict:
+    url = url_item.url
+    try:
+        soup = await _fetch_page(client, url)
+        if soup is None:
+            return {
                 **url_item.model_dump(),
-                "content": text,
-                "error_type": ""
+                "content": "",
+                "error_type": "no content",
             }
-        else:
-            result = {
-                    **url_item.model_dump(),
-                    "content": "",
-                    "error_type": "no content after cleaning"
-                }
-        results.append(result)
-    return results
+
+    except httpx.HTTPError:
+        return {
+            **url_item.model_dump(),
+            "content": "",
+            "error_type": "request error",
+        }
+
+    blocks = _clean_content(soup)
+
+    if blocks:
+        text = _truncate_blocks(blocks, max_chars)
+        return {
+            **url_item.model_dump(),
+            "content": text,
+            "error_type": "",
+        }
+    return {
+        **url_item.model_dump(),
+        "content": "",
+        "error_type": "no content after cleaning",
+    }
+
+
+async def collect_site_content(
+    urls: List[SelectedUrlItem],
+    max_chars: int,
+    scrape_concurrency: int = DEFAULT_SCRAPE_CONCURRENCY,
+):
+    if not urls:
+        return []
+
+    workers = max(1, scrape_concurrency)
+    limits = httpx.Limits(max_connections=workers, max_keepalive_connections=workers)
+    semaphore = asyncio.Semaphore(workers)
+
+    async def process_one(
+        client: httpx.AsyncClient,
+        url_item: SelectedUrlItem,
+    ) -> dict:
+        async with semaphore:
+            return await _scrape_one_url(client, url_item, max_chars)
+
+    async with httpx.AsyncClient(
+        headers={"User-Agent": USER_AGENT},
+        timeout=REQUEST_TIMEOUT,
+        limits=limits,
+    ) as client:
+        return await asyncio.gather(
+            *[process_one(client, url_item) for url_item in urls]
+        )
 
 
 _TRUNCATED_SUFFIX = "\n...[TRUNCATED]"
@@ -423,10 +444,8 @@ def _truncate_blocks(blocks: List[str], max_chars: int) -> str:
         result += _TRUNCATED_SUFFIX
     return result
 
-def scrape_website(
+async def scrape_website(
     website_urls: List[SelectedUrlItem],
-    max_chars: int
+    max_chars: int,
 ) -> List[Dict]:
-
-    results = collect_site_content(website_urls, max_chars)
-    return results
+    return await collect_site_content(website_urls, max_chars)
