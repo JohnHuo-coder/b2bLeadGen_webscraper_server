@@ -1,7 +1,7 @@
 import re
 import asyncio
 from typing import Dict, List, Optional, Set, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -150,7 +150,7 @@ def _extract_mailto_emails(soup: BeautifulSoup, url: str) -> list:
     results = []
     for tag in soup.select('a[href^="mailto:"]'):
         href = tag.get("href", "")
-        email = href.split("mailto:", 1)[1].split("?", 1)[0].strip()
+        email = unquote(href.split("mailto:", 1)[1].split("?", 1)[0]).strip()
         if not EMAIL_PATTERN.fullmatch(email):
             continue
         context = _context_for_element(tag, email)
