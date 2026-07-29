@@ -56,8 +56,17 @@ def normalize_keep_newlines(text: str) -> str:
     return "\n".join(lines)
 
 
+def _normalize_netloc(netloc: str) -> str:
+    netloc = netloc.lower()
+    if netloc.startswith("www."):
+        return netloc[4:]
+    return netloc
+
+
 def _is_same_domain(base_url: str, candidate_url: str) -> bool:
-    return urlparse(base_url).netloc == urlparse(candidate_url).netloc
+    return _normalize_netloc(urlparse(base_url).netloc) == _normalize_netloc(
+        urlparse(candidate_url).netloc
+    )
 
 
 def _is_likely_html_url(url: str) -> bool:
